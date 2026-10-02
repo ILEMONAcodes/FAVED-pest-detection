@@ -311,9 +311,7 @@ Model weights are ignored by Git. Both model files are present locally, but must
 
 ---
 
-### Demo Video
-
-https://github.com/user-attachments/assets/ee3bf0f2-01c9-4630-9191-ab1964fa747b
+#
 
 
 ---
