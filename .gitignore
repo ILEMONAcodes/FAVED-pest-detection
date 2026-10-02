@@ -1,0 +1,80 @@
+# =========================
+# General / OS
+# =========================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.bak
+
+# =========================
+# Editors / IDEs
+# =========================
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.local
+.env.*.local
+.env.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+backend/.env
+backend/.env.local
+
+# =========================
+# Frontend (Node / React / Vite / TS)
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# =========================
+# Backend (Python)
+# =========================
+__pycache__/
+*.py[cod]
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/venv/
+backend/.venv/
+backend/env/
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/instance/
+backend/*.sqlite3
+backend/*.db
+
+# Model / data artifacts (adjust as needed)
+*.pt
+*.gguf
+*.onnx
+backend/models/*.h5
+backend/models/*.pt
+backend/models/*.onnx
+backend/uploads/
+backend/data/
+
+# =========================
+# Misc
+# =========================
+*.pid
+*.seed
+*.pid.lock
+.cache/
