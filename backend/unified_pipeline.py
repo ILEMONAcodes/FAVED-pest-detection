@@ -21,7 +21,7 @@ DISEASE_RULES = [("black", "cocoa", "cocoa_black_pod", "disease"), ("frosty", "c
 DISEASE_OVERRIDES = {}   # exact model class name -> (type, crop, label_key)
 
 def classify_disease_name(name):
-    if name in DISEASE_OVERRIDES: return DISEASE_OVERRIDES[name]
+    if name in DISEASE_OVERRIDES: return DISEASE_OVERRIDES[name] 
     n = name.lower().replace("_", " ").replace("-", " ")
     if "healthy" in n:
         return ("healthy", "cocoa" if "cocoa" in n else "maize" if ("maize" in n or "corn" in n) else None, "healthy")
