@@ -565,12 +565,10 @@ def get_combined_recommendation(
     return recommendations, review_required
 
 
-def predict_disease(image_bytes: bytes, analysis_mode: str = "default"):
+def predict_disease(image_bytes: bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image_bgr = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
-    
-    prediction = DETECTOR.analyze(image_bgr, mode=analysis_mode)
-    
+    prediction = DETECTOR.analyze(image_bgr)
     detections = prediction["detections"]
     annotated_frame = annotate_image(image_bgr, detections)
 
@@ -633,13 +631,11 @@ async def read_uploaded_image(file: UploadFile) -> bytes:
     return image_bytes
 
 
-def _run_diagnosis_job(job_id: str, image_bytes: bytes, language: str, analysis_mode: str):
+def _run_diagnosis_job(job_id: str, image_bytes: bytes, language: str):
     try:
         with JOBS_LOCK:
             JOBS[job_id]["stage"] = "vision"
-            
-            #Run prediction using user-defined "drop-down menu" routing mode.
-        prediction = predict_disease(image_bytes, analysis_mode=analysis_mode)
+        prediction = predict_disease(image_bytes)
 
         if prediction["recognized"] and prediction["status"] != "healthy":
             with JOBS_LOCK:
@@ -787,23 +783,17 @@ def start_recommendation_translation(req: RecommendationTranslationRequest):
 
 
 @app.post("/diagnose/start")
-async def diagnose_start(file: UploadFile = File(...), language: str = Form("English"), analysis_mode: str = Form("default")):
+async def diagnose_start(file: UploadFile = File(...), language: str = Form("English")):
     _prune_old_jobs()
     if language not in SUPPORTED_LANGUAGES:
         raise HTTPException(status_code=422, detail="Unsupported language.")
-    
-    # Validate Input from user
-    VALID_MODES = ("default", "crop pest", "crop disease")
-    if analysis_mode not in VALID_MODES:
-        raise HTTPException(status_code=422, detail=f"Invalid analysis mode. Must be one of {VALID_MODES}")
-    
     image_bytes = await read_uploaded_image(file)
 
     job_id = str(uuid.uuid4())
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "processing", "stage": "queued", "created_at": time.time()}
 
-    thread = threading.Thread(target=_run_diagnosis_job, args=(job_id, image_bytes, language, analysis_mode), daemon=True)
+    thread = threading.Thread(target=_run_diagnosis_job, args=(job_id, image_bytes, language), daemon=True)
     thread.start()
 
     return {"job_id": job_id}

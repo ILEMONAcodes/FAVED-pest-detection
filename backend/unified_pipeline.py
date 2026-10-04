@@ -1,4 +1,4 @@
-"""Individual FAVE pest and disease analysis: one image in, one JSON result out."""
+"""Unified FAVE pest and disease analysis: one image in, one JSON result out."""
 import os, json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -21,7 +21,7 @@ DISEASE_RULES = [("black", "cocoa", "cocoa_black_pod", "disease"), ("frosty", "c
 DISEASE_OVERRIDES = {}   # exact model class name -> (type, crop, label_key)
 
 def classify_disease_name(name):
-    if name in DISEASE_OVERRIDES: return DISEASE_OVERRIDES[name] 
+    if name in DISEASE_OVERRIDES: return DISEASE_OVERRIDES[name]
     n = name.lower().replace("_", " ").replace("-", " ")
     if "healthy" in n:
         return ("healthy", "cocoa" if "cocoa" in n else "maize" if ("maize" in n or "corn" in n) else None, "healthy")
@@ -40,7 +40,7 @@ class UnifiedDetector:
     @classmethod
     def from_env(cls, **kw):
         return cls(os.environ["PEST_MODEL_PATH"], os.getenv("DETECTION_MODEL_PATH"), **kw)
-    
+
     def _detections(self, model, source, image):
         conf = self.pest_conf if source == "pest_model" else self.disease_conf
         lock = self._pest_lock if source == "pest_model" else self._disease_lock
@@ -67,30 +67,16 @@ class UnifiedDetector:
                             bbox_xyxy=None, bbox_xywhn=None, source_model=source))
         return out
 
-    def analyze(self, image, language='en', mode="default"):
-        # Dynamically route models based on the frontend selection
-        models = []
-        
-        if mode in ("default", "crop pest"):
-            models.append((self.pest_model, "pest_model"))
-            
-        if mode in ("default", "crop disease") and self.disease_model is not None:
+    def analyze(self, image, language="en"):
+        models = [(self.pest_model, "pest_model")]
+        if self.disease_model is not None:
             models.append((self.disease_model, "disease_model"))
-            
-        # Fallback if someone sends an invalid route or missing model
-        if not models:
-            models = [(self.pest_model, "pest_model")]
-            
-            #Execute only the routed models
         with ThreadPoolExecutor(max_workers=len(models)) as executor:
             results = list(executor.map(lambda item: self._detections(item[0], item[1], image), models))
-            
         dets = [detection for model_detections in results for detection in model_detections]
-        
         findings = {}
         for d in dets:
-            if d["type"] == "healthy":
-                continue
+            if d["type"] == "healthy": continue
             f = findings.setdefault(d["label_key"], dict(type=d["type"], label=d["label"], label_key=d["label_key"], crop=d["crop"],
                                                          count=0, max_confidence=0.0, evidence=set()))
             f["count"] += 1; f["max_confidence"] = max(f["max_confidence"], d["confidence"]); f["evidence"].add(d["source_model"])
@@ -98,8 +84,7 @@ class UnifiedDetector:
         for f in fl: f["evidence"] = sorted(f["evidence"])
         votes = {}
         for d in dets:
-            if d["crop"]: 
-                votes[d["crop"]] = votes.get(d["crop"], 0) + d["confidence"]
+            if d["crop"]: votes[d["crop"]] = votes.get(d["crop"], 0) + d["confidence"]
         crop = max(votes, key=votes.get) if votes else None
         pests = [f for f in fl if f["type"] == "pest"]; dis = [f for f in fl if f["type"] == "disease"]
         healthy = any(d["type"] == "healthy" for d in dets)
@@ -112,7 +97,7 @@ class UnifiedDetector:
         return dict(schema_version="1.0", crop=crop, status=status, primary_finding=(fl[0] if fl else None),
                     n_pests=len(pests), n_diseases=len(dis), findings=fl, detections=dets, warnings=warnings,
                     recognized=status != "no_detection", rag=dict(language=language, queries=queries))
-        
+
 def annotate_image(image, detections):
     im = image.copy()
     for d in detections:
@@ -127,4 +112,3 @@ def annotate(image_path, result):
 if __name__ == "__main__":
     import sys
     print(json.dumps(UnifiedDetector.from_env().analyze(sys.argv[1]), indent=2))
-    

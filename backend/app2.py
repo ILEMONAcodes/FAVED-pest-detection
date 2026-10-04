@@ -368,7 +368,7 @@ def get_recommendation(crop, disease, confidence, status):
 # Image prediction (YOLO)
 # ---------------------------------------------------------------------------
 
-def predict_disease(image_bytes: bytes, analysis_mode: str = "default"):
+def predict_disease(image_bytes: bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     with YOLO_LOCK:
         results = DETECTION_MODEL.predict(image, conf=CONFIDENCE_THRESHOLD, verbose=False)
@@ -422,9 +422,9 @@ def predict_disease(image_bytes: bytes, analysis_mode: str = "default"):
 # Background job runner
 # ---------------------------------------------------------------------------
 
-def _run_diagnosis_job(job_id: str, image_bytes: bytes, analysis_mode: str):
+def _run_diagnosis_job(job_id: str, image_bytes: bytes):
     try:
-        prediction = predict_disease(image_bytes, analysis_mode=analysis_mode)
+        prediction = predict_disease(image_bytes)
 
         if prediction["recognized"] and prediction["status"] != "healthy":
             llm_result = get_recommendation(
@@ -479,7 +479,7 @@ def recommend(req: DetectionRequest):
 
 
 @app.post("/diagnose/start")
-async def diagnose_start(file: UploadFile = File(...), analysis_mode: str = Form("default")):
+async def diagnose_start(file: UploadFile = File(...)):
     _prune_old_jobs()
     image_bytes = await file.read()
 
