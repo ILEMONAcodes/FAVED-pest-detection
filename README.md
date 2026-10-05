@@ -222,6 +222,12 @@ Responsibilities included evaluating the trained model with precision, recall, m
 
 **Main output:** a tested pest/disease pipeline that supplies unified findings to the recommendation system.
 
+## Acknowledgements
+
+This improved version recognizes the earlier FAVED project and the work credited in its [original repository](https://github.com/HopeAda/FAVED---Farm-AI-Vision-and-Recommendation-for-Early-Disease-Detection). Special thanks to **HopeAda (Asenath Adama)** and the original project contributors: Adeoluwa Ajayi, Esther Udom, Favour Ibitolu, Alli David, Emmanuel Fasina, Dan Cornellius, David Inyang, Mariya Isa, and Adamu Aishat. Their earlier project, disease-detection work, and shared materials provided important context for this improved pest-and-disease system.
+
+Thanks also to the facilitators, **Mr. Ayuba Stephen** and **Mr. Rizama Victor**, and to the **National Center for Artificial Intelligence and Robotics (NCAIR)** for their role in the original project.
+
 ## Version Note
 
 This repository is an improved engineering and deployment version of the FAVE crop-screening project. It adds a selectable detection pipeline, separated frontend/proxy/inference services, knowledge-base-backed recommendations, and explicit translation failure handling. Research notebooks and project materials remain available for context; this README describes the current application architecture and its limitations.
