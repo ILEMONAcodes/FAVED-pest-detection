@@ -1,181 +1,80 @@
 # FAVE: Farm AI Vision and Recommendation for Early Disease and Pest Detection
 
-FAVE helps smallholder farmers identify crop pests and diseases from a single photo and get plain-language, cautious prevention and response guidance in **English, Hausa, Igbo, or Yoruba**. A farmer photographs an affected cocoa or maize crop; pest and disease vision models analyze it, and a language model grounds practical guidance in the local knowledge base.
+FAVE is an improved, research-stage crop-screening application for smallholder farmers. It combines photo-based pest and disease detection for **cocoa and maize** with cautious, knowledge-base-grounded guidance. The web interface supports **English, Hausa, Igbo, and Yoruba**.
 
-The project pairs two systems:
+**Important:** FAVE is a screening and educational aid, not a confirmed diagnosis or a replacement for an agronomist or agricultural extension officer. Model and language output can be wrong. Verify important decisions locally, especially before applying any treatment.
 
-- **Frontend** : a React + TypeScript web app for capturing/uploading photos and displaying diagnosis results.
-- **Backend** : a Python service that runs the vision model and language model locally, with an optional ngrok tunnel for remote access. Two versions exist (see [Backend Versions](#backend-versions) below).
+## Project Description
 
----
+A farmer uploads or captures one crop photo, chooses **Crop disease**, **Pest**, or **Pest + disease**, and receives detected findings with confidence scores and practical follow-up guidance. The vision system uses separate pest and disease models; the selected mode avoids running an unneeded detector. The application maps detections to local knowledge-base records and asks the N-ATLaS language model to produce guidance. Non-English recommendations are generated from the English advice through a separate translation step.
 
-## Table of Contents
+This is an improved version of the earlier project: the frontend and backend are separated, the API proxy is lightweight, inference is deployed independently, detection mode is selectable, recommendations are grounded in local records, and translations can be retried rather than silently shown as English.
 
-- [How It Works](#how-it-works)
-- [Project Structure](#project-structure)
-- [Backend Versions](#backend-versions)
-    - [`app2.py` — Cached Backend](#apppy--cached-backend)
-    - [`app.py` — Live Backend](#app2py--live-backend)
-- [Tech Stack](#tech-stack)
-- [Model Results](#model-results)
-- [Getting Started](#getting-started)
-    - [Frontend Setup](#frontend-setup)
-    - [Backend Setup](#backend-setup)
-    - [Environment Variables](#environment-variables)
-    - [Generating the Recommendation Cache Ahead of Time](#generating-the-recommendation-cache-ahead-of-time)
-    - [Connecting Frontend to Backend](#connecting-frontend-to-backend)
-- [Project Scope & Limitations](#project-scope--limitations)
-- [Contributors](#contributors)
+## Deployment Stack
 
----
+The production architecture uses three services:
 
-## How It Works
+1. **Vercel** serves the Vite + React frontend.
+2. **Render** serves a lightweight FastAPI proxy. It accepts frontend requests and forwards them to Modal; it does not load the ML models.
+3. **Modal** serves the inference API, YOLO models, N-ATLaS, and the knowledge-base-backed recommendation pipeline. Model files are mounted from the persistent `faved-models` Modal Volume at `/models`.
 
-The full pipeline is: **photo in → diagnosis + recommendation out**, in four hand-offs:
+Request flow:
 
-1. **Farmer takes a photo** of the affected leaf (maize) or pod/crop (cocoa).
-2. **Vision models read it in parallel** one YOLO11 model detects pests and the existing FAVED YOLO model detects disease; the backend merges overlapping labels such as Cocoa Mirid into one finding.
-3. **Language model explains it** a second model takes that raw label and writes it up the way a human adviser would: cause, treatment, and prevention.
-4. **Farmer gets the answer** clear guidance delivered in the selected language.
-
-On the frontend, this maps to `DataContext`:
-
-```
-uploadImage()        → user selects/captures a photo, stored as an object URL
-DiagnoseCrop()        → sends the photo to the backend and awaits a diagnosis
-  ├─ startDiagnosisJob()  → POST the image, backend returns a job_id
-  └─ pollDiagnosisJob()   → polls job status every few seconds until "done"
-setResult()            → diagnosis stored in context
-navigate("/result")    → user is routed to the results page
+```text
+Browser (Vercel)
+  -> Render API proxy
+    -> Modal inference API
+      -> selected YOLO detector(s)
+      -> knowledge base + N-ATLaS
+    <- diagnosis / translation job result
+  <- result displayed by the frontend
 ```
 
-The frontend is written to talk to a **job-based, asynchronous** backend (start a job, then poll for its status), which is how the live model (`app.py`) is designed to work, since real inference takes longer than an instant request/response cycle. Diagnosis generates the English recommendation and the selected language. When a farmer changes language after diagnosis, the frontend starts `/recommend/translate/start` and polls `/diagnose/status/{job_id}`; it shows a localized translation-in-progress or retry message instead of presenting English as translated text.
+The `app.py` module is the lightweight Render proxy. `inference_app.py` is the model-serving FastAPI application used by `modal_app.py`. Do not deploy `inference_app.py` on Render using the lightweight `requirements.txt`; it requires the heavier packages in `modal-requirements.txt`.
 
----
+## Repository Layout
 
-## Project Structure
-
-```
-FAVE Farm AI Vision and Recommendation for Early Disease and Pest Detection/
-├── frontend/              # Vite + React + TypeScript app (deploy to Vercel)
-│   ├── src/
-│   │   ├── context/       # DataContext : image upload, diagnosis, polling
-│   │   ├── types/         # ResultType, LanguageType, etc.
-│   │   └── ...
-│   └── package.json
-│
-├── backend/               # FastAPI + YOLO + N-ATLaS (deploy to Render)
-│   ├── app.py             # Live FastAPI entrypoint used by the frontend
-│   ├── unified_pipeline.py # Concurrent pest + disease inference and merge
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── tests/              # Pipeline unit tests
-│   ├── CROP_DISEASES/      # Disease knowledge documents
-│   ├── pests/              # Pest/disease Markdown KB keyed by label_key
-│   ├── bestpest1.pt        # Local pest model (ignored by Git)
-│   ├── model.pt            # Local disease model (ignored by Git)
-│   └── N-ATLaS.Q4_K_M.gguf # Local recommendation model (ignored by Git)
-│
-├── project_files/         # Research scripts, notebooks, and project documents
-└── README.md
+```text
+frontend/                    Vite + React + TypeScript user interface
+backend/app.py               Lightweight Render API proxy
+backend/inference_app.py     Modal inference API and recommendation jobs
+backend/modal_app.py         Modal image, model volume, and ASGI deployment
+backend/requirements.txt     Lightweight Render proxy dependencies
+backend/modal-requirements.txt
+                             ML dependencies installed by Modal
+backend/unified_pipeline.py  Pest/disease model selection and result merging
+backend/knowledge_base.py   Structured Markdown knowledge-base helpers
+backend/translation_utils.py
+                             Translation JSON parsing and completeness checks
+backend/CROP_DISEASES/       Disease reference documents
+backend/pests/               Pest and general IPM Markdown records
+backend/tests/               Focused backend tests
+project_files/               Research code, notebooks, and project documents
 ```
 
-The directory move from the original layout was done with `git mv crop-predict frontend`, which preserves tracked history and local files. The existing `backend/` and `backend/CROP_DISEASES/` were already in the correct locations, so they were not copied or renamed. `backend/model.pt` was removed from Git's index with `git rm --cached backend/model.pt`; its local copy is retained and all `*.pt`/`*.gguf` files are now ignored.
+Model weights (`*.pt`, `*.gguf`) and local `.env` files are intentionally excluded from Git. The production Modal volume currently expects:
 
-To repeat the layout migration from the repository root on a fresh checkout, use:
-
-```bash
-git mv crop-predict frontend
-git rm --cached --ignore-unmatch backend/model.pt backend/pest_best.pt backend/faved_disease_model.pt
-mkdir -p backend/CROP_DISEASES
-git status --short
+```text
+/models/bestpest1.pt
+/models/model.pt
+/models/N-ATLaS.Q4_K_M.gguf
 ```
 
-`git rm --cached` only removes weights from Git's index; it does not delete local files. If a required weight is already tracked under a different name/path, add that exact path to the `git rm --cached` command. Keep locally useful models outside Git and upload deployment weights to Hugging Face or another artifact store. Do not run `mv`, `rm`, or `git clean` against the existing model/data directories as part of the migration.
+## API Flow
 
-Run local checks from the correct package directories:
+The frontend uses asynchronous jobs because model startup and generation can take time:
 
-```bash
-(cd frontend && npm install && npm run build && npm run lint)
-(cd backend && python -m uvicorn app:app --host 127.0.0.1 --port 8000)
-```
+- `POST /diagnose/start`: accepts an image, language, and detection mode; returns a job ID.
+- `GET /diagnose/status/{job_id}`: polls diagnosis or translation job status.
+- `POST /recommend/translate/start`: requests a translation of an existing English recommendation.
+- `POST /predict`: direct image prediction endpoint, mainly for API use.
+- `GET /health`: service health check.
 
----
+The Render proxy forwards these routes to Modal using `MODAL_URL`. The Vercel frontend must point `VITE_API_URL` to the Render service URL, not directly to Modal.
 
-## Backend Versions
+## Local Development
 
-The `backend/` folder ships with **two** entry points. Only run one at a time. Pick whichever fits what you're testing.
-
-### `app2.py` : Cached Backend
-
-Serves **precomputed / cached** diagnosis results instead of running the vision and language models live on every request.
-
-**Why it exists:** it's fast, doesn't need the model runtime warmed up, and is resilient during demos, presentations, or low-connectivity situations where a live inference call might time out.
-
-**Limitations:**
-
-- Does **not** perform real inference on the image you upload. It maps requests to a fixed set of pre-generated results.
-- Not suitable for production use or real farmer deployment : It exists for reliable demos and frontend development without depending on a live model server.
-- Response shape may differ slightly from `app.py` (e.g. a single synchronous `/diagnose` call rather than a job you poll), so the frontend's polling logic may need adjusting to point at this backend.
-
-### `app.py` : Live Backend
-
-Runs the **actual trained models** end-to-end: the YOLOv11-based vision model detects the crop and disease from the uploaded photo, then the language model generates the cause/treatment/prevention write-up in the selected language.
-
-**Limitations (from current project scope):**
-
-- **Four languages supported**: English, Hausa, Igbo, and Yoruba (AI-generated translations should be reviewed by fluent speakers).
-- **Two crops covered**: cocoa and maize. The disease detector has seven labels (five disease/pest labels plus one healthy label per crop); the pest detector has nine labels (five maize and four cocoa pest classes).
-- **Bounding boxes are detections, not segmentation**: they localize model findings but do not outline the exact affected leaf/pod area.
-- **Single image only**: no batch or multi-image upload in one request.
-- **Slower and less predictable response times** than the cached backend, since it depends on live model inference. This is why the frontend uses job polling (`/diagnose/start` + `/diagnose/status/{job_id}`) with a timeout, rather than a single blocking request.
-- **Needs a reachable backend URL**: set `VITE_API_URL` in the frontend environment to the deployed Render service URL.
-- Requires the host machine running the model (e.g. a Colab session or local GPU machine) to stay online for the tunnel to work.
-
----
-
-## Tech Stack
-
-**Frontend:**
-
-- React + TypeScript
-- Vite
-- React Router
-
-**Backend:**
-
-- Python
-- YOLOv11 (computer-vision detection, via transfer learning)
-- N-ATLAS language model for recommendation generation (cause, treatment, prevention text)
-- ngrok (tunnels the local backend to a public URL for the frontend to call)
-
-
-**Tooling:**
-
-- Roboflow: image dataset sourcing/labeling
-- Google Colab / VS Code: training and experimentation
-- GitHub & Google Drive: version control and collaboration
-
----
-
-## Model Results
-
-The vision model was evaluated on unseen test images across all 7 classes:
-
-| Metric    | Score |
-| --------- | ----- |
-| Precision | 86%   |
-| Recall    | 86%   |
-| mAP@50    | 92%   |
-| mAP@50–95 | 74%   |
-
-The full pipeline (photo in, diagnosis and recommendation out) has been tested end-to-end on real photos and works.
-
----
-
-## Getting Started
-
-### Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
@@ -183,162 +82,149 @@ npm install
 npm run dev
 ```
 
-This starts the Vite dev server (typically at `http://localhost:5173`).
+Set `VITE_API_URL` to a running Render proxy or another reachable proxy. `frontend/.env.example` is for local defaults; production values belong in the Vercel project environment settings.
 
-### Backend Setup
+### Render Proxy
 
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate   # on Windows: venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
+MODAL_URL=https://ilemonacodes--faved-api-serve.modal.run \
+CORS_ORIGINS=http://localhost:5173 \
+uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-If `backend/.env` does not exist, create it from `.env.example`. Model paths can point to local files, or the backend downloads missing weights from the configured Hugging Face repositories. Start Uvicorn from `backend/` for local development.
+Alternatively, create `backend/.env` from `backend/.env.example` and set the same variables there. Do not commit `.env` files or tokens.
+
+### Focused Checks
 
 ```bash
-cp .env.example .env
+(cd frontend && npm run build)
+(cd backend && PYTHONPATH=. python -m unittest discover -s tests -p 'test_translation_utils.py' -v)
 ```
 
-Run **one** backend. Use the live backend for the frontend's asynchronous diagnosis flow:
+The full detector test suite needs the ML dependencies used by Modal. The Render proxy intentionally does not install Torch, Ultralytics, or OpenCV.
+
+## Deployment
+
+### Vercel: Frontend
+
+Import the repository into Vercel and configure:
+
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variable: `VITE_API_URL=https://<your-render-service>.onrender.com`
+
+The production frontend currently identified for this deployment is `https://faved-pest-detection.vercel.app/`.
+
+### Render: Proxy API
+
+Create a Docker-based Web Service using `backend/Dockerfile` and set the service root directory to `backend`. The image installs only the lightweight dependencies in `backend/requirements.txt` and binds to Render's `$PORT`.
+
+Configure the Render service environment:
+
+```text
+MODAL_URL=https://ilemonacodes--faved-api-serve.modal.run
+CORS_ORIGINS=https://faved-pest-detection.vercel.app
+PROXY_TIMEOUT_SECONDS=60
+```
+
+Use the actual Render service URL as the frontend's `VITE_API_URL`. Configure the matching Vercel origin in Render CORS if the frontend domain changes.
+
+### Modal: Inference API
+
+The Modal app definition is `backend/modal_app.py`. It installs `backend/modal-requirements.txt`, mounts the `faved-models` volume at `/models`, and packages the disease/pest knowledge files. Deploy from the repository root:
 
 ```bash
-cd backend
-python -m unittest discover -s tests -v
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
+FRONTEND_ORIGIN=https://faved-pest-detection.vercel.app \
+  ./.venv/bin/python -m modal deploy backend/modal_app.py
 ```
 
-The cached backend can also be started with `python -m uvicorn app2:app --host 127.0.0.1 --port 8000`. For remote access, expose port 8000 with ngrok; a tunnel is not needed for local use.
+The deployed endpoint used by this project is:
 
-For local frontend development, `frontend/.env.example` sets the API URL to `http://127.0.0.1:8000`. Copy it to `frontend/.env` if you need an explicit setting; the frontend uses this same URL by default.
-
-### Environment Variables
-
-The backend reads these paths from `backend/.env`, relative to the backend directory:
-
-```
-LLM_MODEL_PATH=N-ATLaS.Q4_K_M.gguf
-LLM_MODEL_REPO_ID=QuantFactory/N-ATLaS-GGUF
-LLM_MODEL_FILENAME=N-ATLaS.Q4_K_M.gguf
-DETECTION_MODEL_PATH=model.pt
-DETECTION_MODEL_REPO_ID=<your-private-or-public-yolo-model-repository>
-DETECTION_MODEL_FILENAME=model.pt
-PEST_MODEL_PATH=bestpest1.pt
-PEST_MODEL_REPO_ID=<your-private-or-public-pest-model-repository>
-PEST_MODEL_FILENAME=bestpest1.pt
-PEST_CONFIDENCE_THRESHOLD=0.25
-DISEASE_CONFIDENCE_THRESHOLD=0.5
-YOLO_IMAGE_SIZE=640
-YOLO_REVIEW_CONFIDENCE=0.45
-DOCUMENTS_FOLDER_PATH=CROP_DISEASES
-PEST_KB_FOLDER_PATH=pests
-CACHE_PATH=recommendation_cache.json
-HF_HOME=/var/data/huggingface
-CORS_ORIGINS=https://your-frontend.vercel.app
+```text
+https://ilemonacodes--faved-api-serve.modal.run
 ```
 
-The `.env` file is not committed because it is machine-local. Change these values only if you store the model or knowledge-base assets elsewhere.
+The model volume must contain the three files listed above. Since the current deployment stores the model files in that volume, it does not need a Hugging Face token to load them. If model downloading from a private Hugging Face repository is configured in the future, use a Modal Secret; never put access tokens in source files, README examples, or committed `.env` files.
 
-### Generating the Recommendation Cache Ahead of Time
+The Modal function needs enough memory and CPU for the YOLO weights and 4.6 GB quantized language model. The image currently allocates 4 CPUs and 16 GB RAM. Modal may scale down after inactivity, so the first request can have a cold-start delay.
 
-The cached backend (`app2.py`) reads its results from `recommendation_cache.json`. Rather than generating this file by hand, you can build it ahead of time by running `generate_cache.py`, which loops through every crop/disease pair in the knowledge base and generates localized recommendations, then writes the results to `recommendation_cache.json`.
+## Language and Model Limitations
 
-To run it:
+- **Four interface/output languages:** English, Hausa, Igbo, and Yoruba. Other languages and dialects are not supported by the current UI/API configuration.
+- **Translation quality varies:** Hausa, Igbo, and Yoruba content is generated by N-ATLaS, not written or verified by professional translators. Fluency, spelling, terminology, and meaning can vary across languages and requests. Do not treat a successful response as proof of linguistic correctness.
+- **Translations can fail or be incomplete:** outputs are parsed and checked for required advice sections. If generation is invalid or incomplete, the UI may remain in a translating state until polling completes, or show a retry option after failure. Retrying may produce a different result; it is not a guarantee.
+- **Advice is generated in English then translated** when the user selects a non-English language. Translation is a separate model call and adds latency and another possible failure point.
+- **Language labels do not guarantee equal model competence.** N-ATLaS may perform unevenly across Hausa, Igbo, and Yoruba, particularly for long technical advice. Fluent-speaker and agronomist review is needed before relying on translations in the field.
+- **Coverage is limited to the classes represented by the shipped pest and disease weights and mappings**, currently targeting cocoa and maize. Unknown crops, pests, diseases, mixed symptoms, uncommon cultivars, and out-of-distribution images may be missed or mislabeled.
+- **A confidence score is not diagnostic certainty.** Lighting, focus, distance, background, growth stage, symptom similarity, image quality, and training-data coverage affect predictions. Multiple findings may be merged by label mapping.
+- **Boxes are detections, not segmentation.** They do not precisely trace affected tissue or measure disease severity.
+- **One image per diagnosis.** There is no batch workflow, temporal tracking, farm history, or offline mode.
+- **Recommendations are bounded by the local knowledge base and prompt.** A record may be missing, incomplete, or marked draft. Draft entries require agronomist review. Local registration, product availability, label instructions, crop stage, and regional conditions may differ.
+- **No pesticide prescription:** the system is instructed not to invent product names, doses, or action thresholds. Follow locally approved labels and consult an extension officer.
+- **Not emergency or autonomous decision support.** It does not replace scouting, laboratory confirmation, professional advice, or local regulatory guidance.
+- **Infrastructure adds latency and failure modes.** Modal cold starts, model initialization, serialized language-model access, proxy/network timeouts, service restarts, and in-memory job state can delay or interrupt a request. A restart can lose a job that was still being processed.
+- **Requires internet access** between the browser, Render, and Modal. Availability and cost depend on the hosting providers and selected service plans.
 
-```bash
-cd backend
-python generate_cache.py
-```
+Treat outputs as preliminary guidance. Confirm uncertain findings with an agricultural extension officer, and have local-language advice reviewed by fluent speakers and subject-matter experts before operational use.
 
-This uses the same models and prompts as the live backend, so each entry can take a while to generate. Since this is a one-time, offline step, there is no need to rush it: let it run to completion so every crop/disease pair has a cached entry.
+## Evaluation
 
-Once complete, `recommendation_cache.json` will exist in the backend folder and `app2.py` can be run to serve fast, precomputed results without needing the models warmed up on every request.
+The original disease-model evaluation recorded the following scores on its held-out test set:
 
-### Connecting Frontend to Backend
+| Metric | Reported score |
+| --- | ---: |
+| Precision | 86% |
+| Recall | 86% |
+| mAP@50 | 92% |
+| mAP@50–95 | 74% |
 
-The frontend reads `VITE_API_URL` and defaults to the local backend URL:
+These are model-evaluation metrics for that dataset and test setup, not guarantees of real-world accuracy. They do not measure translation quality, recommendation safety, or performance on every farm, region, device, crop variety, or field condition. See the training/evaluation notebook in `backend/` for experiment details.
 
-```ts
-// frontend/src/context/DataContext.tsx
-const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-```
+## Research and Demo Materials
 
-For remote use, set `VITE_API_URL` to the public backend URL in Vercel's project environment variables. The live backend exposes `/diagnose/start`, `/diagnose/status/{job_id}`, and `/recommend/translate/start` for asynchronous diagnosis and on-demand translations.
+Research notebooks, training materials, and project documents are in `backend/` and `project_files/`. The web demo is available at [faved-pest-detection.vercel.app](https://faved-pest-detection.vercel.app/). Model outputs should still be interpreted with the limitations above.
 
-### Deploying the Vite Frontend to Vercel
+## Project Teams and Contributions
 
-This repository currently uses Vite + React, not Next.js. Vercel can deploy it directly without a framework migration:
+### Team 1: Dataset and Preprocessing
 
-1. Import the repository into Vercel and set **Root Directory** to `frontend`.
-2. Use build command `npm run build` and output directory `dist` (install command `npm install`).
-3. Set `VITE_API_URL` to the deployed Render service URL, then deploy.
+- **Prosper Ekechukwu, Team Lead**
+- Banmen Akuso
+- Chigozirim Oduche
 
-`frontend/.env.production.example` is a placeholder example; set the real URL in Vercel rather than committing a deployment-specific `.env.production`.
+Responsibilities included identifying target pest classes, sourcing and cleaning datasets, annotating images where needed, preparing YOLO-format data, creating train/validation/test splits, applying augmentation, addressing class imbalance, and documenting sources and preparation.
 
-### Deploying the Backend to Render
+**Main output:** a clean, structured, YOLO-ready pest dataset.
 
-Create a Render **Web Service** using the repository's Dockerfile and set its root directory to `backend`. The container binds to Render's `PORT` and exposes `/health`. `unified_pipeline.py` runs pest and disease inference concurrently, combines results using `label_key`, then `app.py` loads matching disease DOCX or pest/disease Markdown facts for one grounded N-ATLaS recommendation.
+### Team 2: YOLO Model Training
 
-Configure these Render environment variables:
+- **Muhammad Omeiza, Team Lead**
+- Ekene Nwakonobi
+- Farhan Mashood
 
-- `DETECTION_MODEL_REPO_ID`: Hugging Face repository containing the existing disease weights, with `DETECTION_MODEL_FILENAME=model.pt`.
-- `PEST_MODEL_REPO_ID`: Hugging Face repository containing `bestpest1.pt`, with `PEST_MODEL_FILENAME=bestpest1.pt`.
-- `LLM_MODEL_REPO_ID=QuantFactory/N-ATLaS-GGUF` and `LLM_MODEL_FILENAME=N-ATLaS.Q4_K_M.gguf`.
-- `HF_HOME=/var/data/huggingface`, with a Render persistent disk mounted at `/var/data` (recommend at least 10 GB).
-- `CORS_ORIGINS=https://<your-vercel-domain>` (comma-separated if more than one frontend origin is needed).
+Responsibilities included selecting the YOLO model, setting up transfer learning and training, experimenting with hyperparameters, comparing runs, managing checkpoints, selecting the best model, and testing it on new images.
 
-N-ATLaS is several gigabytes and is downloaded on first startup; persistent storage prevents downloading it again after restarts. The service also loads PyTorch and the GGUF into memory, so choose a Render instance with substantial RAM (16 GB recommended); a small/free instance is not suitable. The original `NCAIR1/N-ATLaS` repository contains gated BF16 Transformers weights, not the GGUF format this app's `llama-cpp-python` runtime can load. The configured QuantFactory repository is the compatible GGUF source.
+**Main output:** a trained pest-detection model, such as `best.pt`.
 
-Model weights are ignored by Git. Both model files are present locally, but must be uploaded to Hugging Face (or another artifact store) before Render can download them; set both model repository IDs above. The `backend/pests/` Markdown entries are currently marked draft and need agronomist review. The result screen will show a review notice, and prompts explicitly prohibit inventing product names or application rates.
+### Team 3: Evaluation, Integration, and Existing Disease Model
 
----
+- **Oluwatonilola Sodimu, Team Lead**
+- Dan Cornelius
+- Chukwudi Iroegbulem
+- Solomon Samuel
 
-## Project Scope & Limitations
+Responsibilities included evaluating the trained model with precision, recall, mAP@50, mAP@50–95, and F1-score; analyzing errors, false positives, and false negatives; testing unseen images; reviewing the existing FAVED disease model; integrating pest and disease detection; unifying outputs; and preparing model results for the knowledge-grounded recommendation pipeline.
 
-**Covered:**
+**Main output:** a tested pest/disease pipeline that supplies unified findings to the recommendation system.
 
-- 2 crops: cocoa and maize
-- 9 pest classes and 7 disease-detector labels
-- Live camera/photo-based detection
-- Recommendations in English, Hausa, Igbo, and Yoruba
+## Version Note
 
-**Not yet covered:**
-
-- Additional crops or languages beyond the above
-- Affected-area segmentation (bounding-box detection only)
-- Multiple image uploads in a single request
-- Offline / low-connectivity operation (both backends currently depend on a live server connection)
-
----
-
-### Demo Video
-
-https://github.com/user-attachments/assets/ee3bf0f2-01c9-4630-9191-ab1964fa747b
-
-
----
-
-# Acknowledgement
-
-A huge thanks to the people behind this project:
-
-## Contributors
-
-Adeoluwa Ajayi · Esther Udom · Favour Ibitolu · Alli David · Emmanuel Fasina · Dan Cornellius · David Inyang · Mariya Isa · Adamu Aishat · Asenath Adama
-
-## Facilitators
-
-Mr. Ayuba Stephen
-
-Mr. Rizama Victor
-
-## Organization
-
-National Center for Artificial Intelligence and Robotics(NCAIR)
-
----
-
-_FAVE pairs computer-vision screening with knowledge-grounded language support to help farmers respond earlier. Model output is a screening aid, not a confirmed diagnosis; draft knowledge-base records require agronomist review._
+This repository is an improved engineering and deployment version of the FAVE crop-screening project. It adds a selectable detection pipeline, separated frontend/proxy/inference services, knowledge-base-backed recommendations, and explicit translation failure handling. Research notebooks and project materials remain available for context; this README describes the current application architecture and its limitations.
 
 
 

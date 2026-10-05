@@ -21,6 +21,7 @@ from llama_cpp import Llama
 from dotenv import load_dotenv
 from unified_pipeline import DETECTION_MODES, UnifiedDetector, annotate_image
 from knowledge_base import load_markdown_kb, merge_recommendation_with_knowledge
+from translation_utils import normalize_translation, parse_translation
 
 app = FastAPI(title="FAVE API", version="1.0.0")
 BASE_DIR = Path(__file__).resolve().parent
@@ -86,7 +87,7 @@ llm = Llama(
         default_repo="QuantFactory/N-ATLaS-GGUF",
         filename_env="LLM_MODEL_FILENAME",
     ),
-    n_ctx=2048,
+    n_ctx=4096,
     n_threads=os.cpu_count() or 4,
     n_batch=512,
     verbose=False,
@@ -322,13 +323,13 @@ Return ONLY this JSON, fully translated into {target_language}:
     ]
 
 
-def call_llm(messages, max_new_tokens=900, retries=2, json_mode=False):
+def call_llm(messages, max_new_tokens=900, retries=2, json_mode=False, temperature=0.1):
     """
     Calls the loaded LLM and returns raw text, with retries so a single bad
     generation doesn't crash the pipeline. Returns "" if every attempt fails
     or returns empty text, so the caller can detect failure and fall back.
     """
-    kwargs = dict(temperature=0.1, top_p=0.9, repeat_penalty=1.1)
+    kwargs = dict(temperature=temperature, top_p=0.9, repeat_penalty=1.1)
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
@@ -380,22 +381,7 @@ def _parse_llm_json(text: str, status: str) -> dict:
 
 
 def _parse_json_or_none(text: str):
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
-    return None
+    return parse_translation(text)
 
 
 def get_recommendation(crop, disease, confidence, status):
@@ -425,16 +411,16 @@ def get_recommendation(crop, disease, confidence, status):
             target_language=language,
             pathogen=english_parsed.get("pathogen", ""),
         )
-        translation_raw = call_llm(translation_messages, json_mode=True)
-        translated = _parse_json_or_none(translation_raw)
+        translation_raw = call_llm(
+            translation_messages,
+            max_new_tokens=1600,
+            retries=3,
+            json_mode=True,
+            temperature=0.0,
+        )
+        translated = normalize_translation(_parse_json_or_none(translation_raw))
 
-        if (
-            translated
-            and all(isinstance(translated.get(field), str) and translated[field].strip()
-                    for field in ("description", "cause", "more_about"))
-            and all(isinstance(translated.get(field), list) and translated[field]
-                    for field in ("steps", "prevention"))
-        ):
+        if translated:
             recommendations[language] = {
                 "pathogen": translated.get("pathogen") or english_parsed.get("pathogen", ""),
                 "description": translated["description"],
@@ -545,18 +531,13 @@ def get_combined_recommendation(
                 language,
                 pathogen=english_result.get("pathogen", ""),
             ),
-            max_new_tokens=400,
-            retries=1,
+            max_new_tokens=1400,
+            retries=3,
             json_mode=True,
+            temperature=0.0,
         )
-        translated = _parse_json_or_none(translation_raw)
-        if (
-            translated
-            and all(isinstance(translated.get(field), str) and translated[field].strip()
-                    for field in ("description", "cause", "more_about"))
-            and all(isinstance(translated.get(field), list) and translated[field]
-                    for field in ("steps", "prevention"))
-        ):
+        translated = normalize_translation(_parse_json_or_none(translation_raw))
+        if translated:
             recommendations[language] = {
                 "pathogen": translated.get("pathogen") or english_result.get("pathogen", ""),
                 "description": translated["description"],
@@ -690,25 +671,17 @@ def _run_recommendation_translation(job_id: str, request: "RecommendationTransla
                 request.language,
                 pathogen=source.get("pathogen", ""),
             ),
-            max_new_tokens=400,
-            retries=1,
+            max_new_tokens=1400,
+            retries=3,
             json_mode=True,
+            temperature=0.0,
         )
-        translated = _parse_json_or_none(raw_translation)
-        if (
-            not translated
-            or not isinstance(translated.get("description"), str)
-            or not translated["description"].strip()
-            or not isinstance(translated.get("cause"), str)
-            or not translated["cause"].strip()
-            or not isinstance(translated.get("more_about"), str)
-            or not translated["more_about"].strip()
-            or not isinstance(translated.get("steps"), list)
-            or not translated["steps"]
-            or not isinstance(translated.get("prevention"), list)
-            or not translated["prevention"]
-        ):
-            raise ValueError(f"A {request.language} translation could not be generated. Please retry.")
+        translated = normalize_translation(_parse_json_or_none(raw_translation))
+        if not translated:
+            raise ValueError(
+                f"A complete {request.language} translation could not be generated. "
+                "The model returned invalid or incomplete structured output. Please retry."
+            )
 
         result = {
             "pathogen": translated.get("pathogen") or source.get("pathogen", ""),

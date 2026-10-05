@@ -38,6 +38,7 @@ image = (
     .add_local_file(str(BACKEND_DIR / "inference_app.py"), remote_path="/root/inference_app.py")
     .add_local_file(str(BACKEND_DIR / "unified_pipeline.py"), remote_path="/root/unified_pipeline.py")
     .add_local_file(str(BACKEND_DIR / "knowledge_base.py"), remote_path="/root/knowledge_base.py")
+    .add_local_file(str(BACKEND_DIR / "translation_utils.py"), remote_path="/root/translation_utils.py")
 )
 
 
