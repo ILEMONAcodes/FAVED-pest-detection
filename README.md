@@ -189,7 +189,7 @@ These are model-evaluation metrics for that dataset and test setup, not guarante
 
 Research notebooks, training materials, and project documents are in `backend/` and `project_files/`. The web demo is available at [faved-pest-detection.vercel.app](https://faved-pest-detection.vercel.app/). Model outputs should still be interpreted with the limitations above.
 
-## Project Teams and Contributions
+## Project Teams and Contributions led by Solomon Ilemona Samuel
 
 ### Team 1: Dataset and Preprocessing
 
@@ -226,7 +226,7 @@ Responsibilities included evaluating the trained model with precision, recall, m
 
 This improved version recognizes the earlier FAVED project and the work credited in its [original repository](https://github.com/HopeAda/FAVED---Farm-AI-Vision-and-Recommendation-for-Early-Disease-Detection). Special thanks to **HopeAda (Asenath Adama)** and the original project contributors: Adeoluwa Ajayi, Esther Udom, Favour Ibitolu, Alli David, Emmanuel Fasina, Dan Cornellius, David Inyang, Mariya Isa, and Adamu Aishat. Their earlier project, disease-detection work, and shared materials provided important context for this improved pest-and-disease system.
 
-Thanks also to the facilitators, **Mr. Ayuba Stephen** and **Mr. Rizama Victor**, and to the **National Center for Artificial Intelligence and Robotics (NCAIR)** for their role in the original project.
+Thanks also to the facilitators, **Mr. Ayuba Stephen** and **Mr. Rizama Victor**, and to the **National Center for Artificial Intelligence and Robotics (NCAIR)** for their role in ensuring the original and improved version is possible.
 
 ## Version Note
 
