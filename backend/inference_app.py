@@ -87,6 +87,7 @@ llm = Llama(
         default_repo="QuantFactory/N-ATLaS-GGUF",
         filename_env="LLM_MODEL_FILENAME",
     ),
+    # Expanded context window from 2048 to 4096 to prevent truncation of full multi-lingual knowledge base entries
     n_ctx=4096,
     n_threads=os.cpu_count() or 4,
     n_batch=512,
